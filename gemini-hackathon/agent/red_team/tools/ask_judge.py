@@ -102,7 +102,6 @@ async def ask_judge(
                 temperature=0.0,
                 response_mime_type="application/json",
                 response_schema=JudgeVerdict,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         verdict = JudgeVerdict.model_validate_json(response.text)
