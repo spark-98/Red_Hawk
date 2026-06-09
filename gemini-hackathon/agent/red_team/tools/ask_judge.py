@@ -8,7 +8,7 @@ from google.genai import types
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 
-_JUDGE_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+_JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "gemini-2.0-flash-lite")
 _genai_client: Optional[genai.Client] = None
 
 
@@ -102,6 +102,7 @@ async def ask_judge(
                 temperature=0.0,
                 response_mime_type="application/json",
                 response_schema=JudgeVerdict,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         verdict = JudgeVerdict.model_validate_json(response.text)
