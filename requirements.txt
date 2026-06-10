@@ -1,0 +1,4 @@
+# Dashboard runtime deps (Streamlit app at dashboard.py).
+# The agent/backend deps are managed separately by uv in gemini-hackathon/.
+streamlit>=1.58
+pandas>=2.0

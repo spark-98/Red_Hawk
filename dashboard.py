@@ -11,8 +11,17 @@ st.set_page_config(
 # ==========================================
 # DATA SOURCE (Isolate for easy swap later)
 # ==========================================
-from fake_data import generate_fake_results
-results = generate_fake_results()  # <-- SWAP THIS FOR REAL JUDGE DATA LATER
+# Prefer REAL results from the live pipeline (real_data.generate_real_results,
+# produced by `python real_data.py`). Fall back to mock data when no run has been
+# built yet, so the dashboard always renders.
+try:
+    from real_data import generate_real_results
+    results = generate_real_results()
+    _DATA_SOURCE = "live"
+except Exception:
+    from fake_data import generate_fake_results
+    results = generate_fake_results()
+    _DATA_SOURCE = "mock"
 
 # Convert the flat list of nested dicts into a structured Pandas DataFrame
 @st.cache_data
@@ -51,6 +60,10 @@ df = process_data(results)
 # ==========================================
 st.title("🦅 Red Hawk — LLM Red-Teaming Agent")
 st.caption("Multi-round adversarial attack simulation and judge evaluation metrics dashboard.")
+if _DATA_SOURCE == "live":
+    st.success("Showing **live** judge results from the latest pipeline run (`run_results.json`).")
+else:
+    st.info("Showing **mock** data. Run `python real_data.py` (with the target bot up) to populate live results.")
 st.markdown("---")
 
 # ==========================================
