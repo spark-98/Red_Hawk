@@ -1,3 +1,9 @@
+import concurrent.futures
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import streamlit as st
 import pandas as pd
 
@@ -63,7 +69,71 @@ st.caption("Multi-round adversarial attack simulation and judge evaluation metri
 if _DATA_SOURCE == "live":
     st.success("Showing **live** judge results from the latest pipeline run (`run_results.json`).")
 else:
-    st.info("Showing **mock** data. Run `python real_data.py` (with the target bot up) to populate live results.")
+    st.info("Showing **mock** data. Enter a target URL below and click **Start Assessment** to run a live evaluation.")
+st.markdown("---")
+
+# ==========================================
+# ASSESSMENT CONTROLS — drive the pipeline from the UI (no CLI needed)
+# ==========================================
+DEFAULT_TARGET_URL = "http://127.0.0.1:5001/attack"
+
+
+def _run_assessment(target_url: str, num_rounds: int, attacks_per_round: int):
+    """Run the SAME pipeline real_data.py runs today, against target_url.
+
+    Primary path: call real_data.build_results() directly, in a worker thread so
+    its asyncio.run() owns a clean event loop (Streamlit's script thread can
+    otherwise conflict). We only set TARGET_URL and call the existing function —
+    no backend logic is changed here.
+    """
+    os.environ["TARGET_URL"] = target_url.strip()
+    from real_data import build_results  # lazy import; module already loaded above
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(build_results, num_rounds, attacks_per_round).result()
+
+
+def _run_assessment_subprocess(target_url: str):
+    """Fallback: shell out to real_data.py (its __main__ calls build_results())."""
+    env = dict(os.environ, TARGET_URL=target_url.strip())
+    subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parent / "real_data.py")],
+        check=True, env=env,
+    )
+
+
+st.subheader("🚀 Run a New Assessment")
+st.caption("Point Red Hawk at any chatbot endpoint that accepts `{\"message\": ...}` and returns `{\"response\": ...}`.")
+
+ctrl1, ctrl2, ctrl3 = st.columns([3, 1, 1])
+with ctrl1:
+    target_url = st.text_input("Target chatbot URL", value=DEFAULT_TARGET_URL)
+with ctrl2:
+    num_rounds = st.number_input("Rounds", min_value=1, max_value=10, value=3, step=1)
+with ctrl3:
+    attacks_per_round = st.number_input("Attacks / round", min_value=1, max_value=5, value=2, step=1)
+
+if st.button("Start Assessment", type="primary"):
+    if not target_url.strip():
+        st.error("Please enter a target chatbot URL.")
+    else:
+        try:
+            with st.spinner(f"Running attacks against {target_url.strip()} …"):
+                records = _run_assessment(target_url, int(num_rounds), int(attacks_per_round))
+            st.success(f"Assessment complete — {len(records)} attack records. Reloading results…")
+            st.cache_data.clear()
+            st.rerun()
+        except Exception as exc:
+            # Fallback: run real_data.py as a subprocess.
+            try:
+                with st.spinner("Direct call failed; running real_data.py as a subprocess …"):
+                    _run_assessment_subprocess(target_url)
+                st.success("Assessment complete (subprocess). Reloading results…")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as exc2:
+                st.error(f"Assessment failed.\n\nDirect call: {exc}\n\nSubprocess fallback: {exc2}")
+
 st.markdown("---")
 
 # ==========================================
