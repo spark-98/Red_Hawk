@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.tools import FunctionTool, McpToolset
 from google.adk.tools.mcp_tool.mcp_toolset import StdioConnectionParams, StdioServerParameters
+from google.genai import types
 
 from instrumentation import setup_tracing
 from red_team.prompt import red_hawk_instruction
@@ -23,10 +24,19 @@ _model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 # Path to the FastMCP server script that reads Phoenix span data.
 _MCP_SERVER = str(_here.parent / "phoenix_mcp_server.py")
 
+# gemini-2.5-flash thinks by default. On tool-heavy turns it intermittently
+# returns a thought-only response with no text/function-call part, which ADK
+# surfaces as an empty final event and ends the run before the 3 rounds finish.
+# thinking_budget=0 disables thinking so every turn yields an actionable part.
+_generate_content_config = types.GenerateContentConfig(
+    thinking_config=types.ThinkingConfig(thinking_budget=0),
+)
+
 root_agent = Agent(
     model=_model,
     name="red_hawk_agent",
     instruction=red_hawk_instruction,
+    generate_content_config=_generate_content_config,
     tools=[
         # Phoenix MCP tools: get_recent_attack_spans, get_successful_attack_prompts.
         # McpToolset launches phoenix_mcp_server.py as a stdio subprocess and exposes

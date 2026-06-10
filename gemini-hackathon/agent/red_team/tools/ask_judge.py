@@ -8,7 +8,9 @@ from google.genai import types
 from google.adk.tools import ToolContext
 from pydantic import BaseModel, Field
 
-_JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "gemini-2.0-flash-lite")
+# Default to a model published on the Vertex AI path (ADC). gemini-2.0-flash-lite
+# is only on the API-key path and 404s on Vertex; override via JUDGE_MODEL.
+_JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "gemini-2.5-flash")
 _genai_client: Optional[genai.Client] = None
 
 

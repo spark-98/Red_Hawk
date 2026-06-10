@@ -22,6 +22,15 @@ import sys
 import time
 from pathlib import Path
 
+# Windows consoles default to cp1252, which can't encode the arrows / check
+# marks / FastMCP banner glyphs printed below. Force UTF-8 so the run doesn't
+# die with UnicodeEncodeError on the summary line.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import requests
 from dotenv import load_dotenv
 
