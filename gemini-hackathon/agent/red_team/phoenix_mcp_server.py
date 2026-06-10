@@ -52,28 +52,53 @@ def _make_phoenix_client():
     api_key = os.getenv("PHOENIX_API_KEY", "").strip()
     if not api_key:
         return None
-    # PHOENIX_COLLECTOR_ENDPOINT may carry /s/<space> or /v1/traces suffixes.
-    # Strip everything after the hostname for the REST client.
+    # Keep the /s/<space> path — Phoenix Cloud REST API scopes auth to the space.
+    # Only strip OTLP-specific suffixes (/v1/traces etc.) if present.
     raw = (
         os.getenv("PHOENIX_BASE_URL")
         or os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "https://app.phoenix.arize.com")
     )
-    m = re.match(r"(https?://[^/]+)", raw)
-    base_url = m.group(1) if m else raw
-    return _PhoenixClient(base_url=base_url, api_key=api_key)
+    for suffix in ("/v1/traces", "/v1/", "/v1"):
+        if raw.endswith(suffix):
+            raw = raw[: -len(suffix)]
+            break
+    return _PhoenixClient(base_url=raw, api_key=api_key)
+
+
+_TOOL_SPAN_NAME = "execute_tool fire_at_target"
 
 
 def _parse_output(span: dict) -> dict:
-    """Extract attack_prompt and target_response from a Phoenix span dict."""
+    """Extract attack_prompt / target_response from an execute_tool fire_at_target span.
+
+    ADK traces tool calls with span name 'execute_tool <tool_name>'.
+    - input.value  → {"attack_prompt": "..."}
+    - output.value → {"id":...,"name":...,"response":{"attack_prompt":...,"target_response":...,"ok":...}}
+    """
     attrs = span.get("attributes") or {}
-    for key in ("output.value", "input.value"):
-        raw = attrs.get(key, "")
-        try:
-            parsed = json.loads(raw) if isinstance(raw, str) and raw.strip().startswith("{") else {}
-        except Exception:
-            parsed = {}
-        if parsed.get("attack_prompt"):
-            return parsed
+
+    attack_prompt = ""
+    try:
+        raw = attrs.get("input.value", "")
+        if isinstance(raw, str) and raw.strip().startswith("{"):
+            attack_prompt = json.loads(raw).get("attack_prompt", "")
+    except Exception:
+        pass
+
+    target_response, ok = "", False
+    try:
+        raw = attrs.get("output.value", "")
+        if isinstance(raw, str) and raw.strip().startswith("{"):
+            resp = json.loads(raw).get("response", {})
+            target_response = resp.get("target_response", "")
+            ok = bool(resp.get("ok", False))
+            if not attack_prompt:
+                attack_prompt = resp.get("attack_prompt", "")
+    except Exception:
+        pass
+
+    if attack_prompt:
+        return {"attack_prompt": attack_prompt, "target_response": target_response, "ok": ok}
     return {}
 
 
@@ -115,7 +140,7 @@ def get_recent_attack_spans(limit: int = 20) -> str:
                 return json.dumps({"attempts": [], "count": 0,
                                    "warning": "PHOENIX_API_KEY not set."})
             spans = client.spans.get_spans(
-                project_identifier=_PROJECT, name="fire_at_target", limit=limit
+                project_identifier=_PROJECT, name=_TOOL_SPAN_NAME, limit=limit
             )
             attempts = []
             for span in spans:
@@ -160,7 +185,7 @@ def get_successful_attack_prompts(limit: int = 10) -> str:
                 return json.dumps({"prompts": [], "count": 0,
                                    "warning": "PHOENIX_API_KEY not set."})
             spans = client.spans.get_spans(
-                project_identifier=_PROJECT, name="fire_at_target", limit=100
+                project_identifier=_PROJECT, name=_TOOL_SPAN_NAME, limit=100
             )
             successful: list[str] = []
             for span in spans:

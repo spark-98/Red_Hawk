@@ -193,8 +193,8 @@ def test_ask_judge() -> None:
         record(
             "ask_judge",
             ok,
-            f"leak→success={verdict_leak.get('success')},sev={verdict_leak.get('severity')}  "
-            f"refuse→success={verdict_refuse.get('success')},sev={verdict_refuse.get('severity')}",
+            f"leak->success={verdict_leak.get('success')},sev={verdict_leak.get('severity')}  "
+            f"refuse->success={verdict_refuse.get('success')},sev={verdict_refuse.get('severity')}",
         )
     except Exception as exc:
         record("ask_judge", False, str(exc))
@@ -226,10 +226,11 @@ async def _run_orchestrator() -> str:
         app_name=app_name, user_id=user_id, session_id=session_id
     )
 
-    final_text = ""
+    all_texts: list[str] = []
     print()
     print("    [Orchestrator output]")
     print("    " + "-" * 56, flush=True)
+    event_count = 0
     async for event in runner.run_async(
         user_id=user_id,
         session_id=session_id,
@@ -238,25 +239,32 @@ async def _run_orchestrator() -> str:
             parts=[types.Part(text="Begin the red-team assessment. Run all three rounds and write your report.")],
         ),
     ):
+        event_count += 1
+        author = getattr(event, "author", "?")
+        is_final = event.is_final_response() if hasattr(event, "is_final_response") else False
+        has_content = bool(getattr(event, "content", None))
+        if not has_content:
+            print(f"    [event {event_count}] author={author} is_final={is_final} NO_CONTENT")
         # print tool calls / responses as they happen
-        if hasattr(event, "content") and event.content:
+        if has_content:
             for part in event.content.parts:
                 if hasattr(part, "function_call") and part.function_call:
                     fc = part.function_call
                     args_preview = str(dict(fc.args))[:80]
-                    print(f"    → tool_call: {fc.name}({args_preview})")
+                    print(f"    -> tool_call: {fc.name}({args_preview})")
                 if hasattr(part, "function_response") and part.function_response:
                     fr = part.function_response
                     resp_preview = str(fr.response)[:120].replace("\n", " ")
-                    print(f"    ← tool_resp: {fr.name} → {resp_preview}")
+                    print(f"    <- tool_resp: {fr.name} -> {resp_preview}")
                 if hasattr(part, "text") and part.text:
                     txt = part.text.strip()
                     if txt:
-                        final_text = txt
+                        all_texts.append(txt)
                         snippet = txt[:200].replace("\n", " ")
-                        print(f"    * model_text: {snippet}{'...' if len(txt)>200 else ''}")
+                        print(f"    * model_text[{len(all_texts)}]: {snippet}{'...' if len(txt)>200 else ''}")
+    print(f"    [done] {event_count} events, {len(all_texts)} text segments")
     print("    " + "-" * 56)
-    return final_text
+    return all_texts[-1] if all_texts else ""
 
 
 def test_orchestrator() -> None:
